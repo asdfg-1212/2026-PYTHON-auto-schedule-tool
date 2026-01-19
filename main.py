@@ -4,38 +4,38 @@ from core.task import Task
 from core.schedule import Schedule
 from utils.parser import save_tasks, load_tasks
 
+tasks = [] # 全局任务列表
+
+def creat_task_from_input() -> Task:
+    """命令行交互创建Task对象"""    
+    name = input("请输入任务名称: ")
+    estimated_time = int(input("请输入预计用时（分钟）: "))
+    importance = int(input("请输入重要程度（1-5）: "))
+
+    deadline_input = input("请输入截止时间（格式：2026-01-20 18:00，可选）: ")
+    deadline = datetime.strptime(deadline_input, "%Y-%m-%d %H:%M") if deadline_input else None
+
+    note = input("请输入备注（可选）: ")
+
+    # 创建Task对象
+    task = Task(
+        name=name,
+        estimated_time=estimated_time,
+        importance=importance,
+        deadline=deadline,
+        note=note
+    )
+
+    return task
+
 def main():
-    # 示例：创建任务
-    tasks = [
-        Task(name="完成大作业", estimated_time=180, importance=5),
-        Task(name="学习Python", estimated_time=120, importance=4),
-        Task(name="锻炼", estimated_time=60, importance=3),
-    ]
+    global tasks
+    print("欢迎来到自动日程规划器！\nWelcome to the Auto Scheduler!")
 
-    # 示例：安排今天的日程
-    today = datetime.now().date()
-    start_of_day = datetime.combine(today, datetime.min.time())
-    end_of_day = datetime.combine(today, datetime.max.time())
+    while True:
+        
+    
 
-    schedule = Schedule(start_time=start_of_day, end_time=end_of_day)
-
-    # 简单的调度逻辑：按重要性排序
-    tasks.sort(key=lambda x: x.importance, reverse=True)
-
-    current_time = start_of_day.replace(hour=9) # 假设从早上9点开始
-
-    for task in tasks:
-        if not schedule.add_task(task, current_time):
-            print(f"无法安排任务: {task.name}")
-        else:
-            current_time += task.estimated_time
-
-    # 打印日程
-    for start, end, task in schedule.get_schedule():
-        print(f"{start.strftime('%H:%M')} - {end.strftime('%H:%M')}: {task.name}")
-
-    # 保存任务
-    save_tasks(tasks)
 
 if __name__ == "__main__":
     main()
