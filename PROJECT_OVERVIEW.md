@@ -10,7 +10,7 @@
 
 ---
 
-## 📁 精简后的项目结构
+## 📁 项目结构
 
 ```
 2026-PythonProject/
@@ -30,8 +30,6 @@
     ├── tasks.json            # 任务数据
     └── schedule_*.json       # 日程数据
 ```
-
-**已删除**：`core/week_schedule.py`（不需要多日管理）
 
 ---
 

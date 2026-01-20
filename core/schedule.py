@@ -101,45 +101,59 @@ class Schedule:
         
         return None
 
-    def add_task(self, task, start_time=None):
+    def add_task(self, task):
         """
-        添加任务到日程
+        添加一个已经计算好时间的任务到日程
         
         参数:
-            task: Task对象
-            start_time: 指定开始时间，None则自动查找
+            task: Task对象 (必须包含 start_time 和 end_time)
         
         返回:
             True (成功) / False (失败)
-        
-        TODO: 已实现，你可以直接使用
         """
-        if start_time is None:
-            # 自动查找可用时间
-            start_time = self.find_available_slot(task.estimated_time)
-            if start_time is None:
-                return False  # 没有可用时间
-        
-        end_time = start_time + task.estimated_time
-        
+        if not hasattr(task, 'start_time') or not hasattr(task, 'end_time'):
+            print("[Schedule] Error: 任务缺少 'start_time' 或 'end_time'。")
+            return False
+
         # 检查时间是否可用
-        if not self.is_time_available(start_time, end_time):
+        if not self.is_time_available(task.start_time, task.end_time):
+            # print(f"[Schedule] Debug: 时间段 {task.start_time.strftime('%H:%M')}-{task.end_time.strftime('%H:%M')} 不可用。")
             return False
         
         # 添加任务
-        self.time_slots.append((start_time, end_time, task))
+        self.time_slots.append((task.start_time, task.end_time, task))
         self.time_slots.sort()
         return True
-    
-    def get_available_slots(self):
+
+    def remove_task(self, task_to_remove):
+        """从日程中移除一个任务"""
+        self.time_slots = [
+            (start, end, task) for start, end, task in self.time_slots 
+            if task.id != task_to_remove.id
+        ]
+
+    def get_all_free_slots(self):
         """
-        获取所有空闲时间段
+        获取当天所有空闲的时间段
         
-        返回: [(start, end, duration_minutes), ...]
-        
-        TODO: 你可以实现（可选，用于显示空闲时间）
+        返回:
+            一个字典列表 [{'start': datetime, 'end': datetime}, ...]
         """
-        pass
+        all_slots = self.fixed_slots + self.time_slots
+        all_slots.sort()
+
+        free_slots = []
+        current_time = self.start_time
+
+        for slot_start, slot_end, _ in all_slots:
+            if current_time < slot_start:
+                free_slots.append({'start': current_time, 'end': slot_start})
+            current_time = max(current_time, slot_end)
+        
+        if current_time < self.end_time:
+            free_slots.append({'start': current_time, 'end': self.end_time})
+            
+        return free_slots
 
     def get_schedule(self):
         """获取所有已安排的任务"""
@@ -148,8 +162,6 @@ class Schedule:
     def display(self):
         """
         美观地显示日程表
-        
-        TODO: 已实现，你可以直接使用
         """
         print(f"\n{'='*60}")
         print(f"  日程安排：{self.date.strftime('%Y-%m-%d %A')}")
@@ -159,17 +171,35 @@ class Schedule:
         all_slots = []
         
         for start, end, desc in self.fixed_slots:
-            all_slots.append((start, end, desc, "固定"))
+            all_slots.append({'start': start, 'end': end, 'name': desc, 'type': "固定"})
         
         for start, end, task in self.time_slots:
-            all_slots.append((start, end, task.name, f"任务(重要性:{task.importance})"))
+            all_slots.append({'start': start, 'end': end, 'name': task.name, 'type': f"任务(重要性:{task.importance})"})
         
-        # 排序并显示
-        all_slots.sort()
+        # 排序
+        all_slots.sort(key=lambda x: x['start'])
+
         if not all_slots:
-            print("  （暂无安排）")
-        else:
-            for start, end, name, type_info in all_slots:
-                print(f"{start.strftime('%H:%M')} - {end.strftime('%H:%M')}  "
-                      f"[{type_info}] {name}")
+            print("  >> 今天是自由的一天，没有安排！")
+            return
+
+        # 打印第一个活动前的空闲时间
+        if all_slots[0]['start'] > self.start_time:
+             print(f"{self.start_time.strftime('%H:%M')} - {all_slots[0]['start'].strftime('%H:%M')}  [空闲] ...")
+
+        # 打印活动和活动间的空闲时间
+        for i, slot in enumerate(all_slots):
+            print(f"{slot['start'].strftime('%H:%M')} - {slot['end'].strftime('%H:%M')}  [{slot['type']}] {slot['name']}")
+            
+            # 检查与下一个活动之间的空闲
+            if i + 1 < len(all_slots):
+                next_slot = all_slots[i+1]
+                if slot['end'] < next_slot['start']:
+                    print(f"{slot['end'].strftime('%H:%M')} - {next_slot['start'].strftime('%H:%M')}  [空闲] ...")
+
+        # 打印最后一个活动后的空闲时间
+        if all_slots[-1]['end'] < self.end_time:
+            print(f"{all_slots[-1]['end'].strftime('%H:%M')} - {self.end_time.strftime('%H:%M')}  [空闲] ...")
+
+        print(f"\n{'='*60}")
 

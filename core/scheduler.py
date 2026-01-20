@@ -31,52 +31,97 @@ class Scheduler:
             allow_split: 是否允许拆分任务
             
         返回:
-            成功安排的任务数量
-        
-        TODO: 你需要实现以下逻辑：
-        1. 对任务进行排序
-           - 重要性高的优先（importance降序）
-           - 截止时间近的优先
-        
-        2. 遍历排序后的任务
-           - 尝试找到可用时间段
-           - 如果任务太长且allow_split=True，考虑拆分
-           - 调用schedule.add_task()添加任务
-        
-        3. 记录无法安排的任务
-        
-        4. 返回成功安排的任务数量
-        
-        示例：
-        sorted_tasks = sorted(tasks, 
-            key=lambda t: (-t.importance, t.deadline or datetime.max))
+            (scheduled_tasks, failed_tasks): 一个元组，包含成功安排的任务列表和无法安排的任务列表
         """
-        scheduled_count = 0
+        scheduled_tasks = []
         failed_tasks = []
+
+        # 1. 对任务进行排序 (按重要性降序)
+        sorted_tasks = sorted(tasks, key=lambda t: t.importance, reverse=True)
+
+        # 2. 遍历排序后的任务
+        for task in sorted_tasks:
+            # 尝试找到一个完整的时间段来容纳任务
+            start_time = schedule.find_available_slot(task.estimated_time)
+            if start_time:
+                task.start_time = start_time
+                task.end_time = start_time + task.estimated_time
+                schedule.add_task(task)
+                scheduled_tasks.append(task)
+            elif allow_split:
+                # 如果找不到完整时间段，并且允许拆分
+                sub_tasks = Scheduler.split_and_schedule_task(task, schedule)
+                if sub_tasks:
+                    scheduled_tasks.extend(sub_tasks)
+                else:
+                    failed_tasks.append(task) # 拆分后也无法安排
+            else:
+                # 如果不允许拆分，且找不到时间段，则任务失败
+                failed_tasks.append(task)
+
+        # 3. 打印无法安排的任务
+        if failed_tasks:
+            print("\n[Scheduler] 提示: 以下任务无法安排, 请考虑减少任务或调整日程。")
+            for task in failed_tasks:
+                print(f"- {task.name} (预计耗时: {task.estimated_time.total_seconds() / 60} 分钟)")
         
-        # TODO: 实现排序
-        # sorted_tasks = sorted(...)
-        
-        # TODO: 遍历任务
-        # for task in sorted_tasks:
-        #     if schedule.add_task(task):
-        #         scheduled_count += 1
-        #     elif allow_split:
-        #         # 尝试拆分任务
-        #         拆分逻辑...
-        #     else:
-        #         failed_tasks.append(task)
-        
-        # TODO: 打印结果
-        # if failed_tasks:
-        #     print(f"⚠️ 有{len(failed_tasks)}个任务无法安排")
-        
-        return scheduled_count
-    
+        return scheduled_tasks, failed_tasks
+
+    @staticmethod
+    def split_and_schedule_task(task, schedule):
+        """
+        尝试将单个任务拆分并放入多个可用时间段
+        """
+        remaining_time = task.estimated_time
+        all_free_slots = schedule.get_all_free_slots()
+        sub_tasks = []
+        part_num = 1
+
+        for slot in all_free_slots:
+            if remaining_time <= timedelta(minutes=0):
+                break
+
+            slot_duration = slot['end'] - slot['start']
+            
+            if slot_duration >= remaining_time:
+                # 当前时间段足够容纳剩余任务
+                sub_task_duration = remaining_time
+                remaining_time = timedelta(minutes=0)
+            else:
+                # 当前时间段不够，只能放一部分
+                sub_task_duration = slot_duration
+
+            # 创建并添加子任务
+            sub_task = Task(
+                name=f"{task.name} - Part {part_num}",
+                estimated_time=sub_task_duration,
+                importance=task.importance,
+                deadline=task.deadline,
+                note=task.note
+            )
+            sub_task.start_time = slot['start']
+            sub_task.end_time = slot['start'] + sub_task_duration
+            
+            schedule.add_task(sub_task)
+            sub_tasks.append(sub_task)
+            
+            remaining_time -= sub_task_duration
+            part_num += 1
+
+        # 如果任务完全被拆分并安排，则返回子任务列表
+        if remaining_time <= timedelta(minutes=0):
+            return sub_tasks
+        else:
+            # 如果遍历完所有时间段后，任务仍未完全安排，则说明安排失败
+            # 需要从schedule中移除已经添加的子任务
+            for sub in sub_tasks:
+                schedule.remove_task(sub)
+            return []
+
     @staticmethod
     def split_task(task, max_duration):
         """
-        将大任务拆分为多个小任务
+        将大任务拆分为多个小任务 (此函数在此版调度器中未直接使用，保留为工具函数)
         
         参数:
             task: Task对象
@@ -84,13 +129,29 @@ class Scheduler:
         
         返回:
             拆分后的Task列表
-        
-        TODO: 你可以实现（可选，进阶功能）：
-        1. 计算需要拆分成几部分
-        2. 创建多个子任务（名称如"任务名-part1", "任务名-part2"）
-        3. 返回子任务列表
         """
-        pass
+        sub_tasks = []
+        total_time = task.estimated_time
+        num_parts = int(total_time / max_duration)
+        if total_time % max_duration > timedelta(0):
+            num_parts += 1
+
+        if num_parts <= 1:
+            return [task]
+
+        for i in range(num_parts):
+            part_time = min(total_time, max_duration)
+            sub_task = Task(
+                name=f"{task.name} - Part {i+1}/{num_parts}",
+                estimated_time=part_time,
+                importance=task.importance,
+                deadline=task.deadline,
+                note=task.note
+            )
+            sub_tasks.append(sub_task)
+            total_time -= part_time
+        
+        return sub_tasks
 
 
 # 辅助函数（可选）
