@@ -154,7 +154,7 @@ class Schedule:
         
         # 添加任务
         self.time_slots.append((task.start_time, task.end_time, task))
-        self.time_slots.sort()
+        self.time_slots.sort(key=lambda x: x[0])  # 按 start_time 排序
         return True
 
     def remove_task(self, task_to_remove):
@@ -172,7 +172,7 @@ class Schedule:
             一个字典列表 [{'start': datetime, 'end': datetime}, ...]
         """
         all_slots = self.fixed_slots + self.time_slots
-        all_slots.sort()
+        all_slots.sort(key=lambda x: x[0])  # 按 start_time 排序
 
         free_slots = []
         current_time = self.start_time

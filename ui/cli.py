@@ -241,21 +241,30 @@ def create_task_from_input():
         except ValueError:
             print("❌ 请输入有效的数字！")
 
+    # 获取起始时间（作为任务的实际开始时间）
+    earliest_start_time = None
+    earliest_start_str = input("起始时间 (格式: HH:MM, 可选, 回车跳过): ").strip()
+    if earliest_start_str:
+        try:
+            # 将时间与当前日期组合
+            time_obj = datetime.strptime(earliest_start_str, "%H:%M").time()
+            today = datetime.now().date()
+            earliest_start_time = datetime.combine(today, time_obj)
+        except ValueError:
+            print("⚠️ 起始时间格式错误，已忽略。")
+
+    # 获取截止时间
     deadline = None
-    deadline_str = input("截止时间 (格式: YYYY-MM-DD HH:MM, 可选, 回车跳过): ").strip()
+    deadline_str = input("截止时间 (格式: HH:MM, 可选, 回车跳过): ").strip()
     if deadline_str:
         try:
-            deadline = datetime.strptime(deadline_str, "%Y-%m-%d %H:%M")
+            # 将时间与当前日期组合
+            time_obj = datetime.strptime(deadline_str, "%H:%M").time()
+            today = datetime.now().date()
+            deadline = datetime.combine(today, time_obj)
         except ValueError:
             print("⚠️ 截止时间格式错误，已忽略。")
 
-    earliest_start_time = None
-    earliest_start_str = input("最早开始时间 (格式: YYYY-MM-DD HH:MM, 可选, 回车跳过): ").strip()
-    if earliest_start_str:
-        try:
-            earliest_start_time = datetime.strptime(earliest_start_str, "%Y-%m-%d %H:%M")
-        except ValueError:
-            print("⚠️ 最早开始时间格式错误，已忽略。")
 
     note = input("备注 (可选, 回车跳过): ").strip()
     

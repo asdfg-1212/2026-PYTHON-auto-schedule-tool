@@ -25,6 +25,14 @@ class Scheduler:
         """
         核心调度算法：将任务列表安排到当天日程中
         
+        新策略（按deadline分段调度）：
+        1. 有起始时间的任务：严格按时间锁定
+        2. 收集所有deadline时间点，将一天分成多个时间段
+        3. 在每个时间段内：
+           - 必须在该段deadline前完成的任务必须完成
+           - 其他任务按重要性参与调度
+        4. 从早到晚按重要性填充
+
         参数:
             tasks: Task对象列表
             schedule: Schedule对象
@@ -36,44 +44,179 @@ class Scheduler:
         scheduled_tasks = []
         failed_tasks = []
 
-        # 1. 对任务进行排序 (按重要性降序)
-        sorted_tasks = sorted(tasks, key=lambda t: t.importance, reverse=True)
+        # 跟踪每个任务的剩余时间
+        task_remaining_time = {task.id: task.estimated_time for task in tasks}
+        task_parts_count = {task.id: 0 for task in tasks}
 
-        # 2. 遍历排序后的任务
-        for task in sorted_tasks:
-            # 确定查找时间段的范围
-            earliest_start = task.earliest_start_time if task.earliest_start_time else None
-            latest_end = task.deadline if task.deadline else None
+        # 第一步：处理有起始时间的任务（严格锁定）
+        tasks_with_start = [t for t in tasks if t.earliest_start_time]
+        for task in sorted(tasks_with_start, key=lambda t: t.earliest_start_time):
+            start = task.earliest_start_time
+            end = start + task.estimated_time
 
-            # 尝试找到一个完整的时间段来容纳任务
-            start_time = schedule.find_available_slot_in_range(
-                task.estimated_time,
-                earliest_start=earliest_start,
-                latest_end=latest_end
-            )
-
-            if start_time:
-                task.start_time = start_time
-                task.end_time = start_time + task.estimated_time
+            if schedule.is_time_available(start, end):
+                task.start_time = start
+                task.end_time = end
                 schedule.add_task(task)
                 scheduled_tasks.append(task)
-            elif allow_split:
-                # 如果找不到完整时间段，并且允许拆分
-                sub_tasks = Scheduler.split_and_schedule_task(task, schedule, earliest_start, latest_end)
-                if sub_tasks:
-                    scheduled_tasks.extend(sub_tasks)
-                else:
-                    failed_tasks.append(task) # 拆分后也无法安排
-            else:
-                # 如果不允许拆分，且找不到时间段，则任务失败
+                task_remaining_time[task.id] = timedelta(0)
+
+        # 第二步：收集所有deadline，按时间排序
+        deadlines = []
+        for task in tasks:
+            if task.deadline and task_remaining_time[task.id] > timedelta(0):
+                deadlines.append(task.deadline)
+
+        deadlines = sorted(set(deadlines))  # 去重并排序
+
+        # 第三步：按deadline分段处理
+        free_slots = schedule.get_all_free_slots()
+
+        for slot in free_slots:
+            slot_start = slot['start']
+            slot_end = slot['end']
+
+            # 找到当前slot内的所有deadline分段点
+            segment_points = [slot_start]
+            for dl in deadlines:
+                if slot_start < dl < slot_end:
+                    segment_points.append(dl)
+            segment_points.append(slot_end)
+
+            # 处理每个子段
+            for i in range(len(segment_points) - 1):
+                segment_start = segment_points[i]
+                segment_end = segment_points[i + 1]
+                current_time = segment_start
+
+                while current_time < segment_end:
+                    # 在当前段内选择任务
+                    best_task = None
+
+                    # 收集可以在当前段调度的任务
+                    available_tasks = []
+                    must_complete_tasks = []  # 必须在当前段完成的任务
+
+                    for task in tasks:
+                        if task_remaining_time[task.id] <= timedelta(minutes=0):
+                            continue
+
+                        # 检查任务是否可以在当前段调度
+                        # 1. 有deadline的任务
+                        if task.deadline:
+                            # 如果deadline是当前段的结束点，必须在此段完成
+                            if task.deadline == segment_end:
+                                must_complete_tasks.append(task)
+                            # 如果deadline在当前段之后，可以参与调度
+                            elif task.deadline > segment_end:
+                                available_tasks.append(task)
+                            # 如果deadline已过，跳过
+                            else:
+                                continue
+                        else:
+                            # 无deadline的任务可以参与调度
+                            available_tasks.append(task)
+
+                    # 计算must_complete任务需要的总时间
+                    must_complete_total_time = timedelta(0)
+                    for task in must_complete_tasks:
+                        must_complete_total_time += task_remaining_time[task.id]
+
+                    # 计算当前段剩余时间
+                    remaining_time_in_segment = segment_end - current_time
+
+                    # 计算可以分配给其他任务的时间（需要预留must_complete的时间）
+                    available_for_others = remaining_time_in_segment - must_complete_total_time
+
+                    # 选择任务逻辑
+                    # 1. 如果must_complete任务快没时间了，优先安排
+                    must_complete_tasks.sort(key=lambda t: t.importance, reverse=True)
+
+                    for task in must_complete_tasks:
+                        # 计算该任务最晚开始时间
+                        latest_start = segment_end - task_remaining_time[task.id]
+
+                        # 如果已经到了最晚开始时间，必须立即安排
+                        if current_time >= latest_start:
+                            best_task = task
+                            break
+
+                    # 2. 如果没有紧急的must_complete任务，按重要性选择
+                    if not best_task:
+                        all_candidates = must_complete_tasks + available_tasks
+                        all_candidates.sort(key=lambda t: t.importance, reverse=True)
+
+                        for task in all_candidates:
+                            # 如果是must_complete任务，直接选择
+                            if task in must_complete_tasks:
+                                best_task = task
+                                break
+                            # 如果是available任务，检查是否还有空间（需要预留must_complete时间）
+                            elif available_for_others > timedelta(minutes=0):
+                                best_task = task
+                                break
+
+                    if not best_task:
+                        break  # 没有可调度的任务
+
+                    # 计算填充时间
+                    available_time = segment_end - current_time
+                    fill_duration = min(task_remaining_time[best_task.id], available_time)
+
+                    # 如果任务在must_complete中，确保能在segment_end前完成
+                    if best_task in must_complete_tasks:
+                        # 不能超过deadline
+                        time_until_deadline = best_task.deadline - current_time
+                        fill_duration = min(fill_duration, time_until_deadline)
+                    else:
+                        # 如果是available任务，不能占用must_complete的预留时间
+                        fill_duration = min(fill_duration, available_for_others)
+
+                    if fill_duration <= timedelta(minutes=0):
+                        break
+
+                    # 创建任务片段
+                    task_parts_count[best_task.id] += 1
+                    part_num = task_parts_count[best_task.id]
+
+                    if task_remaining_time[best_task.id] > fill_duration:
+                        task_name = f"{best_task.name} - Part {part_num}"
+                    else:
+                        task_name = f"{best_task.name} - Part {part_num}" if part_num > 1 else best_task.name
+
+                    sub_task = Task(
+                        name=task_name,
+                        estimated_time=int(fill_duration.total_seconds() / 60),
+                        importance=best_task.importance,
+                        deadline=best_task.deadline,
+                        earliest_start_time=None,
+                        note=best_task.note
+                    )
+                    sub_task.start_time = current_time
+                    sub_task.end_time = current_time + fill_duration
+
+                    if schedule.add_task(sub_task):
+                        scheduled_tasks.append(sub_task)
+                        task_remaining_time[best_task.id] -= fill_duration
+                        current_time += fill_duration
+                    else:
+                        break
+
+        # 检查失败的任务
+        for task in tasks:
+            if task_remaining_time[task.id] > timedelta(minutes=0):
                 failed_tasks.append(task)
 
-        # 3. 打印无法安排的任务
         if failed_tasks:
-            print("\n[Scheduler] 提示: 以下任务无法安排, 请考虑减少任务或调整日程。")
+            print("\n[Scheduler] 提示: 以下任务无法完全安排:")
             for task in failed_tasks:
-                print(f"- {task.name} (预计耗时: {task.estimated_time.total_seconds() / 60} 分钟)")
-        
+                remaining_min = task_remaining_time[task.id].total_seconds() / 60
+                total_min = task.estimated_time.total_seconds() / 60
+                if remaining_min < total_min:
+                    print(f"- {task.name} (部分完成，还剩 {remaining_min:.0f}/{total_min:.0f} 分钟)")
+                else:
+                    print(f"- {task.name} (完全未安排，需要 {total_min:.0f} 分钟)")
+
         return scheduled_tasks, failed_tasks
 
     @staticmethod
@@ -132,7 +275,7 @@ class Scheduler:
             # 创建并添加子任务
             sub_task = Task(
                 name=f"{task.name} - Part {part_num}",
-                estimated_time=int(sub_task_duration.total_seconds() // 60),
+                estimated_time=int(sub_task_duration.total_seconds() / 60),
                 importance=task.importance,
                 deadline=task.deadline,
                 earliest_start_time=task.earliest_start_time,
@@ -197,7 +340,7 @@ class Scheduler:
 def calculate_priority(task):
     """
     计算任务优先级分数
-    
+
     TODO: 你可以实现更复杂的优先级算法
     考虑因素：
     - 重要性（1-5）
