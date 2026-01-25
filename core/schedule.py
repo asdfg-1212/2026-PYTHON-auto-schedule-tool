@@ -101,6 +101,38 @@ class Schedule:
         
         return None
 
+    def find_available_slot_in_range(self, duration, earliest_start=None, latest_end=None):
+        """
+        在指定时间范围内找到第一个能容纳指定时长的空闲时间段
+
+        参数:
+            duration: timedelta对象，需要的时长
+            earliest_start: 最早开始时间（datetime），如果为None则使用self.start_time
+            latest_end: 最晚结束时间（datetime），如果为None则使用self.end_time
+
+        返回:
+            可用的开始时间（datetime），找不到返回None
+        """
+        if earliest_start is None:
+            earliest_start = self.start_time
+        if latest_end is None:
+            latest_end = self.end_time
+
+        # 确保在合理范围内
+        earliest_start = max(earliest_start, self.start_time)
+        latest_end = min(latest_end, self.end_time)
+
+        current = earliest_start
+        step = timedelta(minutes=15)  # 每15分钟检查一次
+
+        while current + duration <= latest_end:
+            end = current + duration
+            if self.is_time_available(current, end):
+                return current
+            current += step
+
+        return None
+
     def add_task(self, task):
         """
         添加一个已经计算好时间的任务到日程

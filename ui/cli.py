@@ -138,6 +138,82 @@ def load_daily_fixed_slots(schedule, settings):
         schedule.add_fixed_slot(start_dt, end_dt, f"课程: {course_name}")
 
 
+def ask_modify_today_schedule(schedule, settings):
+    """
+    询问用户是否要修改当日的作息时间
+    如果修改，则清空schedule的固定时间段并重新加载
+
+    参数:
+        schedule: Schedule 对象
+        settings: Settings 对象
+    """
+    print("\n>>> 是否需要修改今日的作息时间？")
+    modify = input("请输入 (y/n, 默认n): ").strip().lower()
+
+    if modify != 'y':
+        return
+
+    print("\n--- 修改今日作息时间 ---")
+    print("请选择要修改的项目（输入对应数字，多个用逗号分隔，如: 1,2）：")
+    print("1. 早餐时间")
+    print("2. 午餐时间")
+    print("3. 晚餐时间")
+
+    choice = input("请输入选择: ").strip()
+    if not choice:
+        return
+
+    # 解析选择
+    choices = [c.strip() for c in choice.split(',')]
+
+    date = schedule.date
+    meal_mapping = {
+        '1': ('breakfast', '早餐时间范围'),
+        '2': ('lunch', '午餐时间范围'),
+        '3': ('dinner', '晚餐时间范围')
+    }
+
+    # 临时存储修改后的时间
+    modified_meals = {}
+
+    for c in choices:
+        if c in meal_mapping:
+            key, name = meal_mapping[c]
+            current_value = settings.get(key)
+            print(f"\n当前 {name}: {current_value}")
+            new_value = get_time_range_input(f"请输入新的 {name} (HH:MM-HH:MM): ")
+            modified_meals[key] = new_value
+
+    if not modified_meals:
+        print("未进行任何修改。")
+        return
+
+    # 清空现有的固定时间段
+    schedule.fixed_slots = []
+
+    # 重新加载，使用修改后的值
+    meal_keys = ['breakfast', 'lunch', 'dinner']
+    meal_names = ['早餐', '午餐', '晚餐']
+    for key, name in zip(meal_keys, meal_names):
+        # 如果用户修改了这一项，使用新值；否则使用配置中的值
+        time_range = modified_meals.get(key, settings.get(key))
+        if time_range:
+            start_str, end_str = time_range.split('-')
+            start_dt = datetime.combine(date, datetime.strptime(start_str, "%H:%M").time())
+            end_dt = datetime.combine(date, datetime.strptime(end_str, "%H:%M").time())
+            schedule.add_fixed_slot(start_dt, end_dt, name)
+
+    # 重新加载课程（课程不变）
+    weekday = date.weekday()
+    courses = settings.get_courses_for_day(weekday)
+    for start_str, end_str, course_name in courses:
+        start_dt = datetime.combine(date, datetime.strptime(start_str, "%H:%M").time())
+        end_dt = datetime.combine(date, datetime.strptime(end_str, "%H:%M").time())
+        schedule.add_fixed_slot(start_dt, end_dt, f"课程: {course_name}")
+
+    print("\n✓ 今日作息时间已更新！")
+
+
 def create_task_from_input():
 # ...existing code...
     print("\n--- 添加新任务 ---")
@@ -173,10 +249,18 @@ def create_task_from_input():
         except ValueError:
             print("⚠️ 截止时间格式错误，已忽略。")
 
+    earliest_start_time = None
+    earliest_start_str = input("最早开始时间 (格式: YYYY-MM-DD HH:MM, 可选, 回车跳过): ").strip()
+    if earliest_start_str:
+        try:
+            earliest_start_time = datetime.strptime(earliest_start_str, "%Y-%m-%d %H:%M")
+        except ValueError:
+            print("⚠️ 最早开始时间格式错误，已忽略。")
+
     note = input("备注 (可选, 回车跳过): ").strip()
     
     print(f"✓ 任务 '{name}' 已创建")
-    return Task(name=name, estimated_time=estimated_time, importance=importance, deadline=deadline, note=note)
+    return Task(name=name, estimated_time=estimated_time, importance=importance, deadline=deadline, earliest_start_time=earliest_start_time, note=note)
 
 
 def add_multiple_tasks():

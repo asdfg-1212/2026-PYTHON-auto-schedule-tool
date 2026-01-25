@@ -41,8 +41,17 @@ class Scheduler:
 
         # 2. 遍历排序后的任务
         for task in sorted_tasks:
+            # 确定查找时间段的范围
+            earliest_start = task.earliest_start_time if task.earliest_start_time else None
+            latest_end = task.deadline if task.deadline else None
+
             # 尝试找到一个完整的时间段来容纳任务
-            start_time = schedule.find_available_slot(task.estimated_time)
+            start_time = schedule.find_available_slot_in_range(
+                task.estimated_time,
+                earliest_start=earliest_start,
+                latest_end=latest_end
+            )
+
             if start_time:
                 task.start_time = start_time
                 task.end_time = start_time + task.estimated_time
@@ -50,7 +59,7 @@ class Scheduler:
                 scheduled_tasks.append(task)
             elif allow_split:
                 # 如果找不到完整时间段，并且允许拆分
-                sub_tasks = Scheduler.split_and_schedule_task(task, schedule)
+                sub_tasks = Scheduler.split_and_schedule_task(task, schedule, earliest_start, latest_end)
                 if sub_tasks:
                     scheduled_tasks.extend(sub_tasks)
                 else:
@@ -68,16 +77,45 @@ class Scheduler:
         return scheduled_tasks, failed_tasks
 
     @staticmethod
-    def split_and_schedule_task(task, schedule):
+    def split_and_schedule_task(task, schedule, earliest_start=None, latest_end=None):
         """
         尝试将单个任务拆分并放入多个可用时间段
+
+        参数:
+            task: Task对象
+            schedule: Schedule对象
+            earliest_start: 最早开始时间
+            latest_end: 最晚结束时间（截止时间）
         """
         remaining_time = task.estimated_time
         all_free_slots = schedule.get_all_free_slots()
+
+        # 过滤时间段：只保留符合时间范围的空闲时间段
+        filtered_slots = []
+        for slot in all_free_slots:
+            slot_start = slot['start']
+            slot_end = slot['end']
+
+            # 应用earliest_start限制
+            if earliest_start and slot_end <= earliest_start:
+                continue  # 这个时间段完全在最早开始时间之前
+            if earliest_start and slot_start < earliest_start:
+                slot_start = earliest_start  # 调整开始时间
+
+            # 应用latest_end限制
+            if latest_end and slot_start >= latest_end:
+                continue  # 这个时间段完全在截止时间之后
+            if latest_end and slot_end > latest_end:
+                slot_end = latest_end  # 调整结束时间
+
+            # 检查调整后的时间段是否仍然有效
+            if slot_start < slot_end:
+                filtered_slots.append({'start': slot_start, 'end': slot_end})
+
         sub_tasks = []
         part_num = 1
 
-        for slot in all_free_slots:
+        for slot in filtered_slots:
             if remaining_time <= timedelta(minutes=0):
                 break
 
@@ -94,9 +132,10 @@ class Scheduler:
             # 创建并添加子任务
             sub_task = Task(
                 name=f"{task.name} - Part {part_num}",
-                estimated_time=sub_task_duration,
+                estimated_time=int(sub_task_duration.total_seconds() // 60),
                 importance=task.importance,
                 deadline=task.deadline,
+                earliest_start_time=task.earliest_start_time,
                 note=task.note
             )
             sub_task.start_time = slot['start']
