@@ -10,18 +10,25 @@ from config.settings import Settings
 
 
 def show_welcome():
-# ...existing code...
+    print("\n" + "="*60)
+    print("  欢迎使用智能日程安排工具！")
+    print("  您可以通过本工具轻松管理您的日程安排。")
+    print("="*60)
     print()
 
 
-def get_time_input(prompt):
-    """获取时间输入并验证 (HH:MM)"""
+def get_time_input(prompt, default=None):
+    """获取时间输入并验证 (HH:MM)，支持默认值"""
     while True:
-        time_str = input(prompt).strip()
+        default_part = f" (默认 {default})" if default else ""
+        time_str = input(f"{prompt}{default_part}: ").strip()
+        if not time_str and default:
+            time_str = default
         try:
             return datetime.strptime(time_str, "%H:%M").time()
         except ValueError:
             print("❌ 格式错误，请输入 HH:MM 格式的时间 (例如: 08:00)")
+
 
 def get_time_range_input(prompt):
     """获取时间范围输入并验证 (HH:MM-HH:MM)"""
@@ -37,6 +44,7 @@ def get_time_range_input(prompt):
             return f"{start_str}-{end_str}"
         except ValueError:
             print("❌ 格式错误，请输入 HH:MM-HH:MM 格式的时间范围 (例如: 08:00-10:00)")
+
 
 def first_time_setup():
     """
@@ -107,28 +115,25 @@ def first_time_setup():
     print("\n🎉 首次配置完成！您的设置已保存。")
     return settings
 
-def load_daily_fixed_slots(schedule, settings):
+def load_daily_fixed_slots(schedule, settings, include_meals=True):
     """
     从配置加载某一天的固定时间段（课程、吃饭）并直接添加到schedule对象中
-    
-    参数:
-        schedule: Schedule 对象，将把固定日程添加到此对象
-        settings: Settings 对象
+    include_meals: 是否加载吃饭/午休时间段，默认加载
     """
-    # 从schedule对象中获取日期
     date = schedule.date
-    
+
     # 加载吃饭时间
-    meal_keys = ['breakfast', 'lunch', 'dinner']
-    meal_names = ['早餐', '午餐', '晚餐']
-    for key, name in zip(meal_keys, meal_names):
-        time_range = settings.get(key)
-        if time_range:
-            start_str, end_str = time_range.split('-')
-            start_dt = datetime.combine(date, datetime.strptime(start_str, "%H:%M").time())
-            end_dt = datetime.combine(date, datetime.strptime(end_str, "%H:%M").time())
-            schedule.add_fixed_slot(start_dt, end_dt, name)
-            
+    if include_meals:
+        meal_keys = ['breakfast', 'lunch', 'dinner']
+        meal_names = ['早餐', '午休', '晚餐']
+        for key, name in zip(meal_keys, meal_names):
+            time_range = settings.get(key)
+            if time_range:
+                start_str, end_str = time_range.split('-')
+                start_dt = datetime.combine(date, datetime.strptime(start_str, "%H:%M").time())
+                end_dt = datetime.combine(date, datetime.strptime(end_str, "%H:%M").time())
+                schedule.add_fixed_slot(start_dt, end_dt, name)
+
     # 加载当天课程
     weekday = date.weekday()  # 0=周一, 6=周日
     courses = settings.get_courses_for_day(weekday)
@@ -140,8 +145,8 @@ def load_daily_fixed_slots(schedule, settings):
 
 def ask_modify_today_schedule(schedule, settings):
     """
-    询问用户是否要修改当日的作息时间
-    如果修改，则清空schedule的固定时间段并重新加载
+    询问用户是否要修改当日的作息时间（起床、早餐、午休、晚餐、睡觉）
+    修改后会更新 schedule 的开始/结束时间及固定日程
 
     参数:
         schedule: Schedule 对象
@@ -155,9 +160,11 @@ def ask_modify_today_schedule(schedule, settings):
 
     print("\n--- 修改今日作息时间 ---")
     print("请选择要修改的项目（输入对应数字，多个用逗号分隔，如: 1,2）：")
-    print("1. 早餐时间")
-    print("2. 午餐时间")
-    print("3. 晚餐时间")
+    print("1. 起床时间")
+    print("2. 早餐时间")
+    print("3. 午休时间")
+    print("4. 晚餐时间")
+    print("5. 睡觉时间")
 
     choice = input("请输入选择: ").strip()
     if not choice:
@@ -166,44 +173,62 @@ def ask_modify_today_schedule(schedule, settings):
     # 解析选择
     choices = [c.strip() for c in choice.split(',')]
 
-    date = schedule.date
-    meal_mapping = {
-        '1': ('breakfast', '早餐时间范围'),
-        '2': ('lunch', '午餐时间范围'),
-        '3': ('dinner', '晚餐时间范围')
-    }
+    # 读取当前配置
+    current_wake = settings.get('wake_up')
+    current_sleep = settings.get('sleep')
+    current_breakfast = settings.get('breakfast')
+    current_lunch = settings.get('lunch')
+    current_dinner = settings.get('dinner')
 
-    # 临时存储修改后的时间
-    modified_meals = {}
+    modified = {}
 
     for c in choices:
-        if c in meal_mapping:
-            key, name = meal_mapping[c]
-            current_value = settings.get(key)
-            print(f"\n当前 {name}: {current_value}")
-            new_value = get_time_range_input(f"请输入新的 {name} (HH:MM-HH:MM): ")
-            modified_meals[key] = new_value
+        if c == '1':
+            modified['wake_up'] = get_time_input(f"起床时间 (当前 {current_wake}): ")
+        elif c == '2':
+            modified['breakfast'] = get_time_range_input(f"早餐时间范围 (当前 {current_breakfast}) (HH:MM-HH:MM): ")
+        elif c == '3':
+            modified['lunch'] = get_time_range_input(f"午休时间范围 (当前 {current_lunch}) (HH:MM-HH:MM): ")
+        elif c == '4':
+            modified['dinner'] = get_time_range_input(f"晚餐时间范围 (当前 {current_dinner}) (HH:MM-HH:MM): ")
+        elif c == '5':
+            modified['sleep'] = get_time_input(f"睡觉时间 (当前 {current_sleep}): ")
 
-    if not modified_meals:
+    if not modified:
         print("未进行任何修改。")
         return
 
-    # 清空现有的固定时间段
+    # 使用新的或原有的时间值
+    wake_str = modified.get('wake_up', current_wake)
+    sleep_str = modified.get('sleep', current_sleep)
+    breakfast_range = modified.get('breakfast', current_breakfast)
+    lunch_range = modified.get('lunch', current_lunch)
+    dinner_range = modified.get('dinner', current_dinner)
+
+    # 转为 datetime
+    date = schedule.date
+    wake_time = wake_str if isinstance(wake_str, time) else datetime.strptime(wake_str, "%H:%M").time()
+    sleep_time = sleep_str if isinstance(sleep_str, time) else datetime.strptime(sleep_str, "%H:%M").time()
+
+    # 验证早餐不早于起床
+    bf_start_time = datetime.strptime(breakfast_range.split('-')[0], "%H:%M").time()
+    if bf_start_time < wake_time:
+        print("❌ 早餐时间不能早于起床时间，修改未生效。")
+        return
+
+    # 更新 schedule 起止时间
+    schedule.start_time = datetime.combine(date, wake_time)
+    schedule.end_time = datetime.combine(date, sleep_time)
+
+    # 更新固定时间段
     schedule.fixed_slots = []
+    for rng, name in [(breakfast_range, '早餐'), (lunch_range, '午休'), (dinner_range, '晚餐')]:
+        start_str, end_str = rng.split('-')
+        start_dt = datetime.combine(date, datetime.strptime(start_str, "%H:%M").time())
+        end_dt = datetime.combine(date, datetime.strptime(end_str, "%H:%M").time())
+        schedule.add_fixed_slot(start_dt, end_dt, name)
 
-    # 重新加载，使用修改后的值
-    meal_keys = ['breakfast', 'lunch', 'dinner']
-    meal_names = ['早餐', '午餐', '晚餐']
-    for key, name in zip(meal_keys, meal_names):
-        # 如果用户修改了这一项，使用新值；否则使用配置中的值
-        time_range = modified_meals.get(key, settings.get(key))
-        if time_range:
-            start_str, end_str = time_range.split('-')
-            start_dt = datetime.combine(date, datetime.strptime(start_str, "%H:%M").time())
-            end_dt = datetime.combine(date, datetime.strptime(end_str, "%H:%M").time())
-            schedule.add_fixed_slot(start_dt, end_dt, name)
-
-    # 重新加载课程（课程不变）
+    # 重新加载课程
     weekday = date.weekday()
     courses = settings.get_courses_for_day(weekday)
     for start_str, end_str, course_name in courses:
@@ -215,7 +240,9 @@ def ask_modify_today_schedule(schedule, settings):
 
 
 def create_task_from_input():
-# ...existing code...
+    """
+    从用户输入创建新任务
+    """
     print("\n--- 添加新任务 ---")
     
     name = input("任务名称: ").strip()
@@ -273,7 +300,9 @@ def create_task_from_input():
 
 
 def add_multiple_tasks():
-# ...existing code...
+    """
+    批量添加任务
+    """
     tasks = []
     
     while True:
@@ -289,7 +318,6 @@ def add_multiple_tasks():
 
 
 def display_schedule(schedule):
-# ...existing code...
     """
     美观地显示某一天的日程
     
@@ -300,7 +328,9 @@ def display_schedule(schedule):
 
 
 def show_menu():
-# ...existing code...
+    """
+    显示主菜单
+    """
     print("\n--- 主菜单 ---")
     print("1. 创建新日程")
     print("2. 查看日程 (功能待开发)")
@@ -309,6 +339,48 @@ def show_menu():
     choice = input("请输入选项: ").strip()
     return choice
 
+
+def ask_for_daily_schedule(config):
+    """
+    询问并获取用户今日的作息时间
+    返回 (wake_up_time, sleep_time, fixed_slots)
+    """
+    print("\n>>> 请设置您今天的作息时间：")
+    today = datetime.now().date()
+
+    wake_time = get_time_input("1. 起床时间", config.get('wake_up', '08:00'))
+    breakfast_duration = config.get('breakfast_duration_minutes', 20)
+    lunch_duration = config.get('lunch_duration_minutes', 100)
+    dinner_duration = config.get('dinner_duration_minutes', 30)
+
+    # 早餐时间，校验不早于起床
+    while True:
+        bf_start = get_time_input("2. 早餐时间", config.get('breakfast', '07:40-08:00').split('-')[0])
+        bf_end = get_time_input("   早餐结束时间", config.get('breakfast', '07:40-08:00').split('-')[1])
+        if bf_start < wake_time:
+            print("❌ 早餐时间不能早于起床时间，请重新输入。")
+            continue
+        breakfast_range = (bf_start, bf_end)
+        break
+
+    lunch_start = get_time_input("3. 午休开始时间", config.get('lunch', '12:00-13:40').split('-')[0])
+    lunch_end = get_time_input("   午休结束时间", config.get('lunch', '12:00-13:40').split('-')[1])
+    dinner_start = get_time_input("4. 晚餐开始时间", config.get('dinner', '18:00-18:30').split('-')[0])
+    dinner_end = get_time_input("   晚餐结束时间", config.get('dinner', '18:00-18:30').split('-')[1])
+
+    sleep_time = get_time_input("5. 睡觉时间", config.get('sleep', '23:00'))
+
+    fixed_slots = [
+        (datetime.combine(today, breakfast_range[0]), datetime.combine(today, breakfast_range[1]), "早餐"),
+        (datetime.combine(today, lunch_start), datetime.combine(today, lunch_end), "午休"),
+        (datetime.combine(today, dinner_start), datetime.combine(today, dinner_end), "晚餐"),
+    ]
+
+    return (
+        datetime.combine(today, wake_time),
+        datetime.combine(today, sleep_time),
+        fixed_slots,
+    )
 
 # 更多辅助函数...
 # 你可以根据需要添加更多函数
