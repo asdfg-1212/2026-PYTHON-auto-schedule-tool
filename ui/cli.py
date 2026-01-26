@@ -4,7 +4,7 @@
 提供用户友好的问答式交互
 """
 
-from datetime import datetime, timedelta, time
+from datetime import datetime, timedelta, time, date
 from core.task import Task
 from config.settings import Settings
 
@@ -381,6 +381,32 @@ def ask_for_daily_schedule(config):
         datetime.combine(today, sleep_time),
         fixed_slots,
     )
+
+def choose_target_date():
+    """询问用户选择哪一天的日程，1-7 表示本周周一至周日，回车为今天"""
+    today = date.today()
+    choice = input("\n请选择要安排的日期（1-7 对应周一到周日，回车为今天）: ").strip()
+    if not choice:
+        return today
+    try:
+        num = int(choice)
+        if not 1 <= num <= 7:
+            raise ValueError
+        # 计算本周对应星期的日期（周一=1）
+        delta = (num - 1) - today.weekday()
+        return today + timedelta(days=delta)
+    except ValueError:
+        print("输入无效，使用今天的日期。")
+        return today
+
+
+def ask_keep_previous_tasks(loaded_entries):
+    """询问是否保留已保存的任务"""
+    if not loaded_entries:
+        return False  # 无历史，无需保留
+    print("\n检测到该日期已有保存的任务。是否保留？ (y/n, 默认n): ")
+    ans = input().strip().lower()
+    return ans == 'y'
 
 # 更多辅助函数...
 # 你可以根据需要添加更多函数
