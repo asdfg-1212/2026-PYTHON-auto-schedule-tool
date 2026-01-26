@@ -268,6 +268,10 @@ def create_task_from_input():
         except ValueError:
             print("❌ 请输入有效的数字！")
 
+    # 是否可拆分
+    splittable_ans = input("是否可拆分？(y/n, 默认y): ").strip().lower()
+    splittable = False if splittable_ans == 'n' else True
+
     # 获取起始时间（作为任务的实际开始时间）
     earliest_start_time = None
     earliest_start_str = input("起始时间 (格式: HH:MM, 可选, 回车跳过): ").strip()
@@ -296,7 +300,7 @@ def create_task_from_input():
     note = input("备注 (可选, 回车跳过): ").strip()
     
     print(f"✓ 任务 '{name}' 已创建")
-    return Task(name=name, estimated_time=estimated_time, importance=importance, deadline=deadline, earliest_start_time=earliest_start_time, note=note)
+    return Task(name=name, estimated_time=estimated_time, importance=importance, deadline=deadline, earliest_start_time=earliest_start_time, note=note, splittable=splittable)
 
 
 def add_multiple_tasks():

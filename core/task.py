@@ -13,7 +13,7 @@ class Task:
         - 唯一ID
         - 备注（可选）
     """
-    def __init__(self, name, estimated_time, importance, deadline=None, earliest_start_time=None, completed=False, note=None, task_id=None):
+    def __init__(self, name, estimated_time, importance, deadline=None, earliest_start_time=None, completed=False, note=None, task_id=None, splittable=True):
         self.name = name  # 任务名称
         self.estimated_time = timedelta(minutes=estimated_time)  # 预计用时，timedelta对象
         self.importance = importance  # 重要程度，1-5
@@ -22,6 +22,7 @@ class Task:
         self.completed = completed  # 是否完成
         self.note = note  # 备注，可选
         self.id = task_id if task_id else str(uuid.uuid4())  # 唯一ID，字符串
+        self.splittable = splittable  # 是否可拆分
 
     def mark_completed(self):
         """标记任务为已完成"""
@@ -37,7 +38,8 @@ class Task:
             'earliest_start_time': self.earliest_start_time.isoformat() if self.earliest_start_time else None,
             'completed': self.completed,
             'note': self.note,
-            'id': self.id
+            'id': self.id,
+            'splittable': self.splittable,
         }
 
     @staticmethod
@@ -53,7 +55,8 @@ class Task:
             earliest_start_time=earliest_start_time,
             completed=data.get('completed', False),
             note=data.get('note'),
-            task_id=data.get('id')
+            task_id=data.get('id'),
+            splittable=data.get('splittable', True)
         )
 
     def __repr__(self):

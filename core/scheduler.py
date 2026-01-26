@@ -21,6 +21,31 @@ class Scheduler:
     """
     
     @staticmethod
+    def _find_latest_continuous_slot(schedule, duration, latest_end, earliest_start=None):
+        """在可用时间中寻找最晚的连续区间，满足earliest_start/最新结束"""
+        earliest_start = earliest_start or schedule.start_time
+        latest_end = min(latest_end, schedule.end_time)
+        free_slots = schedule.get_all_free_slots()
+        for slot in reversed(free_slots):
+            start = max(slot['start'], earliest_start)
+            end = min(slot['end'], latest_end)
+            if end - start >= duration:
+                return end - duration
+        return None
+
+    @staticmethod
+    def _find_earliest_continuous_slot(schedule, duration, earliest_start=None, latest_end=None):
+        earliest_start = earliest_start or schedule.start_time
+        latest_end = latest_end or schedule.end_time
+        free_slots = schedule.get_all_free_slots()
+        for slot in free_slots:
+            start = max(slot['start'], earliest_start)
+            end = min(slot['end'], latest_end)
+            if end - start >= duration:
+                return start
+        return None
+
+    @staticmethod
     def schedule_tasks(tasks, schedule, allow_split=True):
         """
         核心调度算法：将任务列表安排到当天日程中
@@ -48,20 +73,48 @@ class Scheduler:
         task_remaining_time = {task.id: task.estimated_time for task in tasks}
         task_parts_count = {task.id: 0 for task in tasks}
 
-        # 第一步：处理有起始时间的任务（严格锁定）
-        tasks_with_start = [t for t in tasks if t.earliest_start_time]
-        for task in sorted(tasks_with_start, key=lambda t: t.earliest_start_time):
+        # 第一步：处理不可拆分的任务
+        # 1.1 起始时间且不可拆分：必须整段放置
+        for task in sorted([t for t in tasks if t.earliest_start_time and not t.splittable], key=lambda t: t.earliest_start_time):
             start = task.earliest_start_time
             end = start + task.estimated_time
-
             if schedule.is_time_available(start, end):
                 task.start_time = start
                 task.end_time = end
                 schedule.add_task(task)
                 scheduled_tasks.append(task)
                 task_remaining_time[task.id] = timedelta(0)
+            else:
+                failed_tasks.append(task)
+                task_remaining_time[task.id] = timedelta(0)
 
-        # 第二步：收集所有deadline，按时间排序
+        # 1.2 有截止时间的不可拆分（无固定起点）：找最新可行区间
+        for task in sorted([t for t in tasks if not t.splittable and not t.earliest_start_time and t.deadline and task_remaining_time[t.id] > timedelta(0)], key=lambda t: t.deadline):
+            start_candidate = Scheduler._find_latest_continuous_slot(schedule, task.estimated_time, task.deadline, earliest_start=schedule.start_time)
+            if start_candidate:
+                task.start_time = start_candidate
+                task.end_time = start_candidate + task.estimated_time
+                schedule.add_task(task)
+                scheduled_tasks.append(task)
+                task_remaining_time[task.id] = timedelta(0)
+            else:
+                failed_tasks.append(task)
+                task_remaining_time[task.id] = timedelta(0)
+
+        # 1.3 无截止时间的不可拆分：按重要性找最早区间
+        for task in sorted([t for t in tasks if not t.splittable and not t.earliest_start_time and not t.deadline and task_remaining_time[t.id] > timedelta(0)], key=lambda t: t.importance, reverse=True):
+            start_candidate = Scheduler._find_earliest_continuous_slot(schedule, task.estimated_time, earliest_start=schedule.start_time)
+            if start_candidate:
+                task.start_time = start_candidate
+                task.end_time = start_candidate + task.estimated_time
+                schedule.add_task(task)
+                scheduled_tasks.append(task)
+                task_remaining_time[task.id] = timedelta(0)
+            else:
+                failed_tasks.append(task)
+                task_remaining_time[task.id] = timedelta(0)
+
+        # 第二步：收集所有deadline，按时间排序（仅剩余未完成的任务）
         deadlines = []
         for task in tasks:
             if task.deadline and task_remaining_time[task.id] > timedelta(0):
@@ -122,6 +175,11 @@ class Scheduler:
                                 seg_start = segment_points[j]
                                 seg_end = segment_points[j + 1]
 
+                                # respect earliest_start_time
+                                if task.earliest_start_time and seg_end <= task.earliest_start_time:
+                                    continue
+                                seg_start = max(seg_start, task.earliest_start_time) if task.earliest_start_time else seg_start
+
                                 if seg_start >= task.deadline:
                                     break
 
@@ -133,7 +191,11 @@ class Scheduler:
                             for future_slot in free_slots[current_slot_index + 1:]:
                                 if future_slot['start'] >= task.deadline:
                                     break
-                                slot_available = min(future_slot['end'], task.deadline) - future_slot['start']
+                                if task.earliest_start_time and future_slot['end'] <= task.earliest_start_time:
+                                    continue
+                                slot_start_adj = max(future_slot['start'], task.earliest_start_time) if task.earliest_start_time else future_slot['start']
+                                slot_end_adj = future_slot['end']
+                                slot_available = min(slot_end_adj, task.deadline) - slot_start_adj
                                 if slot_available > timedelta(0):
                                     future_available_time += slot_available
 
@@ -165,7 +227,7 @@ class Scheduler:
                     # 1. 检查must_complete任务是否到了最晚开始时间
                     for task in must_complete_tasks:
                         latest_start = segment_end - task_remaining_time[task.id]
-                        if current_time >= latest_start:
+                        if current_time >= latest_start and (not task.earliest_start_time or current_time >= task.earliest_start_time):
                             # 按重要性选择紧急任务
                             if not best_task or task.importance > best_task.importance:
                                 best_task = task
@@ -206,6 +268,8 @@ class Scheduler:
 
                             # 首先尝试按重要性选择（如果有available_for_others空间）
                             for task in not_started_tasks:
+                                if task.earliest_start_time and current_time < task.earliest_start_time:
+                                    continue
                                 if task in must_complete_tasks:
                                     best_task = task
                                     break
@@ -259,7 +323,8 @@ class Scheduler:
                         importance=best_task.importance,
                         deadline=best_task.deadline,
                         earliest_start_time=None,
-                        note=best_task.note
+                        note=best_task.note,
+                        splittable=best_task.splittable
                     )
                     sub_task.start_time = current_time
                     sub_task.end_time = current_time + fill_duration
