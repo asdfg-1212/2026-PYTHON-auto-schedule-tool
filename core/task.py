@@ -62,12 +62,3 @@ class Task:
     def __repr__(self):
         return f"Task(name={self.name}, estimated_time={self.estimated_time}, importance={self.importance}, deadline={self.deadline}, earliest_start_time={self.earliest_start_time}, completed={self.completed})"
 
-# TODO:
-# 1. 可以根据实际需求扩展更多字段，如标签、优先级类型等
-# 2. 可以实现任务的子任务（如支持多级任务拆分）
-# 3. 后续可添加与人机交互相关的静态方法，如：
-#    - @staticmethod
-#      def from_user_input():
-#          # 通过命令行/GUI交互获取用户输入，生成Task对象
-# 4. 可实现任务的导出/导入（如CSV、JSON等格式）
-

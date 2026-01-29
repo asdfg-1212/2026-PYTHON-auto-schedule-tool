@@ -1,5 +1,5 @@
 """
-测试脚本：自动测试调度策略
+增加可拆分属性前的核心测试脚本
 """
 
 from datetime import datetime, timedelta

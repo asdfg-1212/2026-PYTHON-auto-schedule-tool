@@ -78,7 +78,7 @@ def main():
 
     # 6. 引导用户输入今日任务
     print("\n--- 请输入今天的任务 ---")
-    tasks_to_schedule = cli.add_multiple_tasks()
+    tasks_to_schedule = cli.add_multiple_tasks(target_date)
 
     if not tasks_to_schedule:
         print("\n今天没有新任务，祝你轻松愉快！")

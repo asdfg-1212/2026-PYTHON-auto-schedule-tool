@@ -6,7 +6,6 @@
 
 import json
 import os
-from datetime import time
 
 
 class Settings:
@@ -167,11 +166,3 @@ class Settings:
     def is_first_time(self):
         """检查是否首次使用"""
         return not self.get('first_time_setup_done', False)
-
-
-# 示例使用：
-if __name__ == "__main__":
-    # 测试代码
-    settings = Settings()
-    print(f"起床时间: {settings.get('wake_up')}")
-    print(f"是否首次使用: {settings.is_first_time()}")

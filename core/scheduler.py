@@ -19,7 +19,9 @@ class Scheduler:
     3. 将任务分配到合适的时间段
     4. 支持任务拆分：如果任务时间长于某个空闲段，可拆分成多个子任务
     """
-    
+
+    VERSION = "2026-01-28-frontier"
+
     @staticmethod
     def _find_latest_continuous_slot(schedule, duration, latest_end, earliest_start=None):
         """在可用时间中寻找最晚的连续区间，满足earliest_start/最新结束"""
@@ -48,9 +50,9 @@ class Scheduler:
     @staticmethod
     def schedule_tasks(tasks, schedule, allow_split=True):
         """
-        核心调度算法：将任务列表安排到当天日程中
-        
-        新策略（按deadline分段调度）：
+        核心调度算法：尽可能多的、满足时间约束条件下地将任务列表安排到当天日程中
+
+        策略 按deadline分段调度：
         1. 有起始时间的任务：严格按时间锁定
         2. 收集所有deadline时间点，将一天分成多个时间段
         3. 在每个时间段内：
@@ -66,6 +68,8 @@ class Scheduler:
         返回:
             (scheduled_tasks, failed_tasks): 一个元组，包含成功安排的任务列表和无法安排的任务列表
         """
+        print(f"[DEBUG] Using Scheduler.VERSION = {Scheduler.VERSION}")
+
         scheduled_tasks = []
         failed_tasks = []
 
@@ -73,7 +77,9 @@ class Scheduler:
         task_remaining_time = {task.id: task.estimated_time for task in tasks}
         task_parts_count = {task.id: 0 for task in tasks}
 
-        # 第一步：处理不可拆分的任务
+        # 第一步：处理约束严格的任务（按刚性程度排序）
+        # 优先级：不可拆分 > 可拆分，有deadline > 有起始时间
+        
         # 1.1 起始时间且不可拆分：必须整段放置
         for task in sorted([t for t in tasks if t.earliest_start_time and not t.splittable], key=lambda t: t.earliest_start_time):
             start = task.earliest_start_time
@@ -87,7 +93,7 @@ class Scheduler:
             else:
                 failed_tasks.append(task)
                 task_remaining_time[task.id] = timedelta(0)
-
+        
         # 1.2 有截止时间的不可拆分（无固定起点）：找最新可行区间
         for task in sorted([t for t in tasks if not t.splittable and not t.earliest_start_time and t.deadline and task_remaining_time[t.id] > timedelta(0)], key=lambda t: t.deadline):
             start_candidate = Scheduler._find_latest_continuous_slot(schedule, task.estimated_time, task.deadline, earliest_start=schedule.start_time)
@@ -99,7 +105,7 @@ class Scheduler:
                 task_remaining_time[task.id] = timedelta(0)
             else:
                 failed_tasks.append(task)
-                task_remaining_time[task.id] = timedelta(0)
+                # 保留剩余时间不变，以便正确显示失败信息
 
         # 1.3 无截止时间的不可拆分：按重要性找最早区间
         for task in sorted([t for t in tasks if not t.splittable and not t.earliest_start_time and not t.deadline and task_remaining_time[t.id] > timedelta(0)], key=lambda t: t.importance, reverse=True):
@@ -112,7 +118,49 @@ class Scheduler:
                 task_remaining_time[task.id] = timedelta(0)
             else:
                 failed_tasks.append(task)
-                task_remaining_time[task.id] = timedelta(0)
+                # 保留剩余时间不变，以便正确显示失败信息
+        
+        # 1.4 起始时间且可拆分：从起始时间开始安排第一部分（锁定起始位置）
+        # 注意：这里不是完全安排完，而是锁定从earliest_start_time开始的第一段
+        for task in sorted([t for t in tasks if t.earliest_start_time and t.splittable and task_remaining_time[t.id] > timedelta(0)], key=lambda t: t.earliest_start_time):
+            # 找到从earliest_start_time开始的第一个可用时段
+            earliest_start = task.earliest_start_time
+            free_slots = schedule.get_all_free_slots()
+            
+            # 只考虑在earliest_start_time之后的空闲段
+            for slot in free_slots:
+                # 跳过在earliest_start_time之前结束的时段
+                if slot['end'] <= earliest_start:
+                    continue
+                
+                # 确定实际开始时间（取earliest_start和slot开始时间的较大值）
+                actual_start = max(slot['start'], earliest_start)
+                
+                # 计算可用时长
+                available_duration = slot['end'] - actual_start
+                fill_duration = min(task_remaining_time[task.id], available_duration)
+                
+                if fill_duration > timedelta(minutes=0):
+                    # 创建任务的一部分
+                    task_parts_count[task.id] += 1
+                    part_num = task_parts_count[task.id]
+                    
+                    # 创建带Part编号的新Task对象
+                    sub_task = Task(
+                        name=f"{task.name} - Part {part_num}",
+                        estimated_time=int(fill_duration.total_seconds() / 60),
+                        importance=task.importance,
+                        deadline=task.deadline,
+                        earliest_start_time=None,  # 子任务不再有earliest_start_time限制
+                        note=task.note,
+                        splittable=task.splittable
+                    )
+                    sub_task.start_time = actual_start
+                    sub_task.end_time = actual_start + fill_duration
+                    schedule.add_task(sub_task)
+                    scheduled_tasks.append(sub_task)
+                    task_remaining_time[task.id] -= fill_duration
+                break  # 只安排第一部分
 
         # 第二步：收集所有deadline，按时间排序（仅剩余未完成的任务）
         deadlines = []
@@ -149,6 +197,18 @@ class Scheduler:
 
                     for task in tasks:
                         if task_remaining_time[task.id] <= timedelta(minutes=0):
+                            continue
+                        
+                        # 有earliest_start_time的任务如果已经开始了第一部分，剩余部分不参与阶段三
+                        # （因为阶段一已经锁定了起始位置，剩余部分应该在后续段落继续，不应回到起始时间之前）
+                        if task.earliest_start_time and task_parts_count[task.id] > 0:
+                            # 只在当前时间 >= earliest_start_time时才能参与
+                            if current_time < task.earliest_start_time:
+                                continue
+                        
+                        # 不可拆分任务如果已经在阶段一处理过（但失败），不应该在阶段三被拆分
+                        # 如果是不可拆分任务且还有剩余时间，说明在阶段一没有被安排，也不应该在阶段三被拆分
+                        if not task.splittable:
                             continue
 
                         # 有deadline的任务
@@ -250,6 +310,9 @@ class Scheduler:
                         if started_tasks:
                             started_tasks.sort(key=lambda t: t.importance, reverse=True)
                             for task in started_tasks:
+                                # 检查earliest_start_time限制
+                                if task.earliest_start_time and current_time < task.earliest_start_time:
+                                    continue
                                 if task in must_complete_tasks:
                                     best_task = task
                                     break
@@ -343,11 +406,6 @@ class Scheduler:
         # 第四步：合并连续的同一任务片段
         merged_tasks = Scheduler._merge_consecutive_tasks(scheduled_tasks, schedule)
 
-        # 检查失败的任务
-        for task in tasks:
-            if task_remaining_time[task.id] > timedelta(minutes=0):
-                failed_tasks.append(task)
-
         if failed_tasks:
             print("\n[Scheduler] 提示: 以下任务无法完全安排:")
             for task in failed_tasks:
@@ -364,6 +422,7 @@ class Scheduler:
     def _merge_consecutive_tasks(scheduled_tasks, schedule):
         """
         合并连续的同一任务片段
+        避免ddl分段导致最终打印时任务被无意义地拆分显示
 
         参数:
             scheduled_tasks: 已调度的任务列表
@@ -377,6 +436,14 @@ class Scheduler:
 
         # 按开始时间排序
         sorted_tasks = sorted(scheduled_tasks, key=lambda t: t.start_time)
+        
+        # 第一步：统计每个基础任务有多少个片段
+        task_fragment_count = {}
+        for task in sorted_tasks:
+            base_name = task.name
+            if " - Part " in base_name:
+                base_name = base_name.split(" - Part ")[0]
+            task_fragment_count[base_name] = task_fragment_count.get(base_name, 0) + 1
 
         merged = []
         i = 0
@@ -417,7 +484,7 @@ class Scheduler:
                 # 创建合并后的任务
                 total_duration = sum((t.end_time - t.start_time for t in merge_group), timedelta(0))
 
-                # 保留第一个片段的Part编号
+                # 保留第一个片段的Part编号（如果该任务总共只有1个片段，后面会去掉）
                 merged_name = merge_group[0].name
 
                 merged_task = Task(
@@ -440,8 +507,35 @@ class Scheduler:
                 # 只有一个片段，直接添加
                 merged.append(current_task)
                 i += 1
+        
+        # 第二步：去掉只有一个片段的任务的Part编号
+        final_merged = []
+        for task in merged:
+            base_name = task.name
+            if " - Part " in base_name:
+                base_name = base_name.split(" - Part ")[0]
+            
+            # 如果这个基础任务只有1个片段，去掉Part编号
+            if task_fragment_count.get(base_name, 0) == 1:
+                schedule.remove_task(task)
+                
+                cleaned_task = Task(
+                    name=base_name,
+                    estimated_time=int((task.end_time - task.start_time).total_seconds() / 60),
+                    importance=task.importance,
+                    deadline=task.deadline,
+                    earliest_start_time=None,
+                    note=task.note
+                )
+                cleaned_task.start_time = task.start_time
+                cleaned_task.end_time = task.end_time
+                
+                schedule.add_task(cleaned_task)
+                final_merged.append(cleaned_task)
+            else:
+                final_merged.append(task)
 
-        return merged
+        return final_merged
 
     @staticmethod
     def split_and_schedule_task(task, schedule, earliest_start=None, latest_end=None):
@@ -559,16 +653,3 @@ class Scheduler:
         
         return sub_tasks
 
-
-# 辅助函数（可选）
-def calculate_priority(task):
-    """
-    计算任务优先级分数
-
-    TODO: 你可以实现更复杂的优先级算法
-    考虑因素：
-    - 重要性（1-5）
-    - 截止时间紧迫程度
-    - 任务时长
-    """
-    pass

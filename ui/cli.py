@@ -239,9 +239,12 @@ def ask_modify_today_schedule(schedule, settings):
     print("\n✓ 今日作息时间已更新！")
 
 
-def create_task_from_input():
+def create_task_from_input(target_date=None):
     """
     从用户输入创建新任务
+    
+    参数:
+        target_date: 目标日期（date对象），用于组合时间
     """
     print("\n--- 添加新任务 ---")
     
@@ -277,10 +280,10 @@ def create_task_from_input():
     earliest_start_str = input("起始时间 (格式: HH:MM, 可选, 回车跳过): ").strip()
     if earliest_start_str:
         try:
-            # 将时间与当前日期组合
+            # 将时间与目标日期组合
             time_obj = datetime.strptime(earliest_start_str, "%H:%M").time()
-            today = datetime.now().date()
-            earliest_start_time = datetime.combine(today, time_obj)
+            date_to_use = target_date if target_date else datetime.now().date()
+            earliest_start_time = datetime.combine(date_to_use, time_obj)
         except ValueError:
             print("⚠️ 起始时间格式错误，已忽略。")
 
@@ -289,10 +292,10 @@ def create_task_from_input():
     deadline_str = input("截止时间 (格式: HH:MM, 可选, 回车跳过): ").strip()
     if deadline_str:
         try:
-            # 将时间与当前日期组合
+            # 将时间与目标日期组合
             time_obj = datetime.strptime(deadline_str, "%H:%M").time()
-            today = datetime.now().date()
-            deadline = datetime.combine(today, time_obj)
+            date_to_use = target_date if target_date else datetime.now().date()
+            deadline = datetime.combine(date_to_use, time_obj)
         except ValueError:
             print("⚠️ 截止时间格式错误，已忽略。")
 
@@ -303,14 +306,17 @@ def create_task_from_input():
     return Task(name=name, estimated_time=estimated_time, importance=importance, deadline=deadline, earliest_start_time=earliest_start_time, note=note, splittable=splittable)
 
 
-def add_multiple_tasks():
+def add_multiple_tasks(target_date=None):
     """
     批量添加任务
+    
+    参数:
+        target_date: 目标日期（date对象），传递给 create_task_from_input
     """
     tasks = []
     
     while True:
-        task = create_task_from_input()
+        task = create_task_from_input(target_date)
         if task:
             tasks.append(task)
         
@@ -387,9 +393,9 @@ def ask_for_daily_schedule(config):
     )
 
 def choose_target_date():
-    """询问用户选择哪一天的日程，1-7 表示本周周一至周日，回车为今天"""
+    """询问用户选择哪一天的日程，1-7 表示周一至周日，回车为今天"""
     today = date.today()
-    choice = input("\n请选择要安排的日期（1-7 对应周一到周日，回车为今天）: ").strip()
+    choice = input("\n请选择想要安排的日期（1-7 对应周一到周日，回车为今天）: ").strip()
     if not choice:
         return today
     try:
@@ -398,7 +404,14 @@ def choose_target_date():
             raise ValueError
         # 计算本周对应星期的日期（周一=1）
         delta = (num - 1) - today.weekday()
-        return today + timedelta(days=delta)
+        target_date = today + timedelta(days=delta)
+        
+        # 如果计算出的日期早于今天，就选择下周的该日期
+        if target_date < today:
+            target_date = target_date + timedelta(days=7)
+            print(f"ℹ️ 选择的是下周 {target_date.strftime('%A')} ({target_date.strftime('%Y-%m-%d')})")
+        
+        return target_date
     except ValueError:
         print("输入无效，使用今天的日期。")
         return today
@@ -411,6 +424,3 @@ def ask_keep_previous_tasks(loaded_entries):
     print("\n检测到该日期已有保存的任务。是否保留？ (y/n, 默认n): ")
     ans = input().strip().lower()
     return ans == 'y'
-
-# 更多辅助函数...
-# 你可以根据需要添加更多函数

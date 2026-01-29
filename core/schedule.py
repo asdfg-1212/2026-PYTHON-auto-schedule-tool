@@ -203,10 +203,16 @@ class Schedule:
         all_slots = []
         
         for start, end, desc in self.fixed_slots:
-            all_slots.append({'start': start, 'end': end, 'name': desc, 'type': "固定"})
+            all_slots.append({'start': start, 'end': end, 'name': desc, 'type': "固定", 'note': None})
         
         for start, end, task in self.time_slots:
-            all_slots.append({'start': start, 'end': end, 'name': task.name, 'type': f"任务(重要性:{task.importance})"})
+            all_slots.append({
+                'start': start, 
+                'end': end, 
+                'name': task.name, 
+                'type': f"任务(重要性:{task.importance})",
+                'note': task.note if hasattr(task, 'note') else None
+            })
         
         # 排序
         all_slots.sort(key=lambda x: x['start'])
@@ -221,7 +227,14 @@ class Schedule:
 
         # 打印活动和活动间的空闲时间
         for i, slot in enumerate(all_slots):
-            print(f"{slot['start'].strftime('%H:%M')} - {slot['end'].strftime('%H:%M')}  [{slot['type']}] {slot['name']}")
+            # 构建基本信息
+            basic_info = f"{slot['start'].strftime('%H:%M')} - {slot['end'].strftime('%H:%M')}  [{slot['type']}] {slot['name']}"
+            
+            # 如果有备注，添加到同一行
+            if slot['note']:
+                print(f"{basic_info}  💡 {slot['note']}")
+            else:
+                print(basic_info)
             
             # 检查与下一个活动之间的空闲
             if i + 1 < len(all_slots):
@@ -234,4 +247,3 @@ class Schedule:
             print(f"{all_slots[-1]['end'].strftime('%H:%M')} - {self.end_time.strftime('%H:%M')}  [空闲] ...")
 
         print(f"\n{'='*60}")
-
