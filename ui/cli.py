@@ -21,7 +21,8 @@ def get_time_input(prompt, default=None):
     """获取时间输入并验证 (HH:MM)，支持默认值"""
     while True:
         default_part = f" (默认 {default})" if default else ""
-        time_str = input(f"{prompt}{default_part}: ").strip()
+        # 这里不再强制追加冒号，由调用方在 prompt 中决定是否包含冒号
+        time_str = input(f"{prompt}{default_part} ").strip()
         if not time_str and default:
             time_str = default
         try:
@@ -77,7 +78,7 @@ def first_time_setup():
     confirm_and_set_time('wake_up', '起床时间', get_time_input)
     confirm_and_set_time('sleep', '睡觉时间', get_time_input)
     confirm_and_set_time('breakfast', '早餐时间范围', get_time_range_input)
-    confirm_and_set_time('lunch', '午餐时间范围', get_time_range_input)
+    confirm_and_set_time('lunch', '午休时间范围', get_time_range_input)
     confirm_and_set_time('dinner', '晚餐时间范围', get_time_range_input)
 
     # 2. 设置课表
@@ -184,15 +185,15 @@ def ask_modify_today_schedule(schedule, settings):
 
     for c in choices:
         if c == '1':
-            modified['wake_up'] = get_time_input(f"起床时间 (当前 {current_wake}): ")
+            modified['wake_up'] = get_time_input(f"起床时间 (当前 {current_wake}):")
         elif c == '2':
-            modified['breakfast'] = get_time_range_input(f"早餐时间范围 (当前 {current_breakfast}) (HH:MM-HH:MM): ")
+            modified['breakfast'] = get_time_range_input(f"早餐时间范围 (当前 {current_breakfast}) (HH:MM-HH:MM):")
         elif c == '3':
-            modified['lunch'] = get_time_range_input(f"午休时间范围 (当前 {current_lunch}) (HH:MM-HH:MM): ")
+            modified['lunch'] = get_time_range_input(f"午休时间范围 (当前 {current_lunch}) (HH:MM-HH:MM):")
         elif c == '4':
-            modified['dinner'] = get_time_range_input(f"晚餐时间范围 (当前 {current_dinner}) (HH:MM-HH:MM): ")
+            modified['dinner'] = get_time_range_input(f"晚餐时间范围 (当前 {current_dinner}) (HH:MM-HH:MM):")
         elif c == '5':
-            modified['sleep'] = get_time_input(f"睡觉时间 (当前 {current_sleep}): ")
+            modified['sleep'] = get_time_input(f"睡觉时间 (当前 {current_sleep}):")
 
     if not modified:
         print("未进行任何修改。")
@@ -358,27 +359,27 @@ def ask_for_daily_schedule(config):
     print("\n>>> 请设置您今天的作息时间：")
     today = datetime.now().date()
 
-    wake_time = get_time_input("1. 起床时间", config.get('wake_up', '08:00'))
+    wake_time = get_time_input("1. 起床时间:", config.get('wake_up', '08:00'))
     breakfast_duration = config.get('breakfast_duration_minutes', 20)
     lunch_duration = config.get('lunch_duration_minutes', 100)
     dinner_duration = config.get('dinner_duration_minutes', 30)
 
     # 早餐时间，校验不早于起床
     while True:
-        bf_start = get_time_input("2. 早餐时间", config.get('breakfast', '07:40-08:00').split('-')[0])
-        bf_end = get_time_input("   早餐结束时间", config.get('breakfast', '07:40-08:00').split('-')[1])
+        bf_start = get_time_input("2. 早餐时间:", config.get('breakfast', '07:40-08:00').split('-')[0])
+        bf_end = get_time_input("   早餐结束时间:", config.get('breakfast', '07:40-08:00').split('-')[1])
         if bf_start < wake_time:
             print("❌ 早餐时间不能早于起床时间，请重新输入。")
             continue
         breakfast_range = (bf_start, bf_end)
         break
 
-    lunch_start = get_time_input("3. 午休开始时间", config.get('lunch', '12:00-13:40').split('-')[0])
-    lunch_end = get_time_input("   午休结束时间", config.get('lunch', '12:00-13:40').split('-')[1])
-    dinner_start = get_time_input("4. 晚餐开始时间", config.get('dinner', '18:00-18:30').split('-')[0])
-    dinner_end = get_time_input("   晚餐结束时间", config.get('dinner', '18:00-18:30').split('-')[1])
+    lunch_start = get_time_input("3. 午休开始时间:", config.get('lunch', '12:00-13:40').split('-')[0])
+    lunch_end = get_time_input("   午休结束时间:", config.get('lunch', '12:00-13:40').split('-')[1])
+    dinner_start = get_time_input("4. 晚餐开始时间:", config.get('dinner', '18:00-18:30').split('-')[0])
+    dinner_end = get_time_input("   晚餐结束时间:", config.get('dinner', '18:00-18:30').split('-')[1])
 
-    sleep_time = get_time_input("5. 睡觉时间", config.get('sleep', '23:00'))
+    sleep_time = get_time_input("5. 睡觉时间:", config.get('sleep', '23:00'))
 
     fixed_slots = [
         (datetime.combine(today, breakfast_range[0]), datetime.combine(today, breakfast_range[1]), "早餐"),

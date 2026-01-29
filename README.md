@@ -17,6 +17,12 @@
 
 ---
 
+## 🎥 操作展示
+可在B站查看项目流程和功能展示<br>
+https://www.bilibili.com/video/BV1o9zfBZE5r/?spm_id_from=333.1387.homepage.video_card.click
+
+---
+
 ## 🔗 项目安装
 
 ### 环境要求

@@ -406,6 +406,12 @@ class Scheduler:
         # 第四步：合并连续的同一任务片段
         merged_tasks = Scheduler._merge_consecutive_tasks(scheduled_tasks, schedule)
 
+        # 第五步：检查是否存在未完全完成的任务（包括可拆分任务）
+        # 如果某个任务还有剩余时间，则视为“未完全安排”，需要在提示中展示
+        for task in tasks:
+            if task_remaining_time[task.id] > timedelta(0) and task not in failed_tasks:
+                failed_tasks.append(task)
+
         if failed_tasks:
             print("\n[Scheduler] 提示: 以下任务无法完全安排:")
             for task in failed_tasks:
